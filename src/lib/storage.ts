@@ -103,24 +103,31 @@ export function yesterdayStr() {
   return localDateStr(d);
 }
 
-// ===== Urge log =====
+// ===== Journal (formerly Urge log) =====
 export type UrgeAction = "breathing" | "walk" | "water" | "stretch" | "cold-water";
 
-export interface UrgeEntry {
+export type JournalEntryType = "urge" | "cycle";
+
+export interface JournalEntry {
   id: string;
+  entryType: JournalEntryType;
   startedAt: number;
   endedAt: number;
   reason?: string;
-  defeated: boolean;
-  actionsUsed: UrgeAction[];
+  defeated?: boolean;
+  actionsUsed?: UrgeAction[];
+  note?: string;
+  tasksCompleted?: string[];
 }
 
-const URGE_KEY = "synthwave-urge-log-v1";
+export type UrgeEntry = JournalEntry;
 
-export function loadUrgeLog(): UrgeEntry[] {
+const JOURNAL_KEY = "youms-journal-v1";
+
+export function loadJournal(): JournalEntry[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = localStorage.getItem(URGE_KEY);
+    const raw = localStorage.getItem(JOURNAL_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
@@ -129,13 +136,18 @@ export function loadUrgeLog(): UrgeEntry[] {
   }
 }
 
-export function saveUrgeEntry(entry: UrgeEntry) {
+export function saveJournalEntry(entry: JournalEntry) {
   if (typeof window === "undefined") return;
-  const all = loadUrgeLog();
+  const all = loadJournal();
   all.push(entry);
-  localStorage.setItem(URGE_KEY, JSON.stringify(all));
+  localStorage.setItem(JOURNAL_KEY, JSON.stringify(all));
 }
 
-export function loadUrgeLogSorted(): UrgeEntry[] {
-  return loadUrgeLog().sort((a, b) => b.startedAt - a.startedAt);
+export function loadJournalSorted(): JournalEntry[] {
+  return loadJournal().sort((a, b) => b.startedAt - a.startedAt);
 }
+
+// Aliases for backward compatibility
+export const loadUrgeLog = loadJournal;
+export const saveUrgeEntry = saveJournalEntry;
+export const loadUrgeLogSorted = loadJournalSorted;

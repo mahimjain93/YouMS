@@ -1,3 +1,5 @@
+export type Category = "JH" | "SeB" | "MJ_SOCIAL" | "MJ_PERSONAL" | "SAFAI" | "HEALTH" | "UNCATEGORIZED";
+
 export interface Task {
   id: string;
   title: string;
@@ -5,6 +7,7 @@ export interface Task {
   done: boolean;
   createdAt: number;
   completedAt?: number;
+  category?: Category;
 }
 
 export type WorkPhase = "idle" | "focus" | "break" | "longBreak";

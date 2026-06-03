@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import {
   loadState,
   saveState,
@@ -215,10 +216,20 @@ export function Dashboard() {
         </header>
 
         {/* Stats HUD */}
-        <div className="grid grid-cols-3 gap-3 mb-6">
+        <div className="grid grid-cols-3 gap-3 mb-4">
           <StatCard label="LEVEL" value={state.level.toString().padStart(2, "0")} color="pink" />
           <StatCard label="STREAK" value={`${state.streak}d`} color="yellow" />
           <StatCard label="DONE" value={state.totalCompleted.toString()} color="cyan" />
+        </div>
+
+        {/* Quest Board nav */}
+        <div className="mb-6 flex justify-end">
+          <Link
+            to="/quests"
+            className="font-display text-[10px] px-4 py-2 neon-border-cyan neon-text-cyan bg-card hover:bg-secondary/10 transition-colors"
+          >
+            [ QUEST BOARD ]
+          </Link>
         </div>
 
         {/* Rituals — all equal */}

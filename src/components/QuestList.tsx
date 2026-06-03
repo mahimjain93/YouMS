@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "@tanstack/react-router";
 import {
   loadState,
   saveState,
@@ -124,9 +123,9 @@ export function QuestList() {
       <div className="relative z-10 mx-auto max-w-7xl px-6 md:px-10 py-8 md:py-12">
         {/* Back button */}
         <div className="mb-6">
-          <Link to="/" className="font-display text-[10px] neon-text-cyan hover:neon-text-pink transition-colors">
+          <a href="#/" className="font-display text-[10px] neon-text-cyan hover:neon-text-pink transition-colors">
             [ ← DASHBOARD ]
-          </Link>
+          </a>
         </div>
 
         {/* Header */}

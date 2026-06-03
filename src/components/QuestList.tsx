@@ -190,7 +190,6 @@ export function QuestList() {
                         }}
                         placeholder="> new quest..."
                         className="flex-1 bg-input border border-border px-3 py-2 font-mono text-xl text-foreground placeholder:text-muted-foreground focus:outline-none"
-                        autoFocus
                       />
                       <select
                         value={xpValue}

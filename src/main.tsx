@@ -1,10 +1,13 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { Dashboard } from "@/components/Dashboard";
+import { RouterProvider } from "@tanstack/react-router";
+import { getRouter } from "@/router-client";
 import "./styles.css";
+
+const router = getRouter();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <Dashboard />
+    <RouterProvider router={router} />
   </StrictMode>
 );

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "@tanstack/react-router";
 import {
   loadState,
   saveState,
@@ -224,12 +223,12 @@ export function Dashboard() {
 
         {/* Quest Board nav */}
         <div className="mb-6 flex justify-end">
-          <Link
-            to="/quests"
+          <a
+            href="#/quests"
             className="font-display text-[10px] px-4 py-2 neon-border-cyan neon-text-cyan bg-card hover:bg-secondary/10 transition-colors"
           >
             [ QUEST BOARD ]
-          </Link>
+          </a>
         </div>
 
         {/* Rituals — all equal */}

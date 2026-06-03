@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   loadState,
   saveState,
-  saveUrgeEntry,
+  saveJournalEntry,
   xpForLevel,
   localDateStr,
   todayStr,
@@ -11,7 +11,7 @@ import {
   type Task,
 } from "@/lib/storage";
 import { UrgeOverlay } from "./UrgeOverlay";
-import { UrgeLog } from "./UrgeLog";
+import { DayJournal } from "./DayJournal";
 import { ShortcutsHelp } from "./ShortcutsHelp";
 import { WorkCyclePanel } from "./WorkCyclePanel";
 
@@ -420,12 +420,12 @@ export function Dashboard() {
       {urgeOpen && (
         <UrgeOverlay
           onClose={(entry) => {
-            saveUrgeEntry(entry);
+            saveJournalEntry(entry);
             setUrgeOpen(false);
           }}
         />
       )}
-      <UrgeLog open={urgeLogOpen} onOpenChange={setUrgeLogOpen} />
+      <DayJournal open={urgeLogOpen} onOpenChange={setUrgeLogOpen} />
       {helpOpen && <ShortcutsHelp onClose={() => setHelpOpen(false)} />}
     </div>
   );

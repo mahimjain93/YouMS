@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { UrgeAction, UrgeEntry } from "@/lib/storage";
+import type { UrgeAction, JournalEntry } from "@/lib/storage";
 
 const AFFIRMATIONS = [
   "BREATHE. THE URGE IS A WAVE. RIDE IT.",
@@ -18,7 +18,7 @@ const ACTION_OPTIONS: Array<{ key: UrgeAction; label: string; hint: string }> = 
   { key: "cold-water", label: "COLD WATER", hint: "splash face / wrists" },
 ];
 
-export function UrgeOverlay({ onClose }: { onClose: (entry: UrgeEntry) => void }) {
+export function UrgeOverlay({ onClose }: { onClose: (entry: JournalEntry) => void }) {
   const [seconds, setSeconds] = useState(60);
   const [affirmation] = useState(
     () => AFFIRMATIONS[Math.floor(Math.random() * AFFIRMATIONS.length)],
@@ -45,8 +45,9 @@ export function UrgeOverlay({ onClose }: { onClose: (entry: UrgeEntry) => void }
 
   const finish = (defeated: boolean) => {
     const trimmed = reason.trim().slice(0, 1000);
-    const entry: UrgeEntry = {
+    const entry: JournalEntry = {
       id: crypto.randomUUID(),
+      entryType: "urge",
       startedAt: startedAtRef.current,
       endedAt: Date.now(),
       reason: trimmed || undefined,

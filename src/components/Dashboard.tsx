@@ -19,9 +19,6 @@ const XP_VALUES = [10, 25, 50];
 const SWIMMING_XP = 25;
 const PROTECTION_XP = 25;
 
-// Ring math for the Work Cycle card mini-ring (r = 20 → circumference ≈ 125.7)
-const RING_CIRC = 125.7;
-
 type CyclePhase = "setup" | "running" | "checkin";
 
 export function Dashboard() {
@@ -479,7 +476,7 @@ export function Dashboard() {
             onClick={openCycle}
             className="bg-card scanlines p-4 transition-all hover:scale-[1.02] active:scale-[0.99]"
             style={{
-              minHeight: 100,
+              minHeight: 140,
               border: "1px solid #00f5ff44",
               boxShadow: "0 0 10px #00f5ff1a",
               display: "flex",
@@ -497,25 +494,29 @@ export function Dashboard() {
                 {cardStatus}
               </span>
             </div>
-            <div style={{ position: "relative", width: 52, height: 52, flexShrink: 0 }}>
+            {/* Ring: cx=66 cy=66 r=55 → circ ≈ 345.6, size=132 */}
+            <div style={{ position: "relative", width: 132, height: 132, flexShrink: 0 }}>
               <svg
-                width={52}
-                height={52}
-                viewBox="0 0 52 52"
+                width={132}
+                height={132}
+                viewBox="0 0 132 132"
                 style={{ transform: "rotate(-90deg)" }}
               >
-                <circle cx={26} cy={26} r={20} fill="none" stroke="#00f5ff15" strokeWidth={3} />
+                <circle cx={66} cy={66} r={55} fill="none" stroke="#00f5ff15" strokeWidth={8} />
                 <circle
-                  cx={26}
-                  cy={26}
-                  r={20}
+                  cx={66}
+                  cy={66}
+                  r={55}
                   fill="none"
                   stroke="#00f5ff"
-                  strokeWidth={3}
+                  strokeWidth={8}
                   strokeLinecap="round"
-                  strokeDasharray={RING_CIRC}
-                  strokeDashoffset={RING_CIRC * (secondsLeft / totalSeconds)}
-                  style={{ filter: "drop-shadow(0 0 4px #00f5ff)" }}
+                  strokeDasharray={345.6}
+                  strokeDashoffset={345.6 * (secondsLeft / totalSeconds)}
+                  style={{
+                    filter: "drop-shadow(0 0 6px #00f5ff)",
+                    transition: "stroke-dashoffset 0.25s linear",
+                  }}
                 />
               </svg>
               <div
@@ -523,11 +524,16 @@ export function Dashboard() {
                   position: "absolute",
                   inset: 0,
                   display: "flex",
+                  flexDirection: "column",
                   alignItems: "center",
                   justifyContent: "center",
+                  gap: 2,
                 }}
               >
-                <span className="font-mono" style={{ fontSize: 9, color: "#00f5ff" }}>
+                <span
+                  className="font-display"
+                  style={{ fontSize: 22, color: "#00f5ff", letterSpacing: 2, lineHeight: 1 }}
+                >
                   {fmtTime(remainingMs)}
                 </span>
               </div>

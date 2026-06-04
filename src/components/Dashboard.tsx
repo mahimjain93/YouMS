@@ -494,8 +494,16 @@ export function Dashboard() {
                 {cardStatus}
               </span>
             </div>
-            {/* Ring: cx=66 cy=66 r=55 → circ ≈ 345.6, size=132 */}
-            <div style={{ position: "relative", width: 132, height: 132, flexShrink: 0 }}>
+            {/* Ring hidden when expansion panel is open */}
+            <div
+              style={{
+                position: "relative",
+                width: 132,
+                height: 132,
+                flexShrink: 0,
+                visibility: cycleOpen ? "hidden" : "visible",
+              }}
+            >
               <svg
                 width={132}
                 height={132}
@@ -631,78 +639,119 @@ export function Dashboard() {
             )}
 
             {cyclePhase === "running" && (
-              <div className="flex flex-col gap-4 items-center">
-                <div
-                  className="font-display"
-                  style={{ fontSize: 32, color: "#00f5ff", letterSpacing: 5 }}
-                >
-                  {fmtTime(remainingMs)}
-                </div>
-
-                <div className="flex flex-wrap gap-2 justify-center">
-                  {escaped ? (
-                    <span className="font-mono text-sm px-2 py-1 border border-border text-muted-foreground">
-                      free cycle
+              <div style={{ display: "flex", gap: 24, alignItems: "center" }}>
+                {/* LEFT — ring with time in center */}
+                <div style={{ position: "relative", width: 120, height: 120, flexShrink: 0 }}>
+                  <svg
+                    width={120}
+                    height={120}
+                    viewBox="0 0 120 120"
+                    style={{ transform: "rotate(-90deg)" }}
+                  >
+                    <circle cx={60} cy={60} r={55} fill="none" stroke="#00f5ff15" strokeWidth={5} />
+                    <circle
+                      cx={60}
+                      cy={60}
+                      r={55}
+                      fill="none"
+                      stroke="#00f5ff"
+                      strokeWidth={5}
+                      strokeLinecap="round"
+                      strokeDasharray={376.99}
+                      strokeDashoffset={376.99 * (secondsLeft / totalSeconds)}
+                      style={{
+                        filter: "drop-shadow(0 0 6px #00f5ff)",
+                        transition: "stroke-dashoffset 0.25s linear",
+                      }}
+                    />
+                  </svg>
+                  <div
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <span
+                      className="font-display"
+                      style={{ fontSize: 20, color: "#00f5ff", letterSpacing: 2, lineHeight: 1 }}
+                    >
+                      {fmtTime(remainingMs)}
                     </span>
-                  ) : (
-                    <>
-                      {selectedTasks.map((t) => (
-                        <span
-                          key={t.id}
-                          className="font-mono text-sm px-2 py-1 border"
-                          style={{ borderColor: "#00f5ff", color: "#00f5ff" }}
-                        >
-                          {t.title}
-                        </span>
-                      ))}
-                      {customTask.trim() && (
-                        <span
-                          className="font-mono text-sm px-2 py-1 border"
-                          style={{ borderColor: "#00f5ff", color: "#00f5ff" }}
-                        >
-                          {customTask.trim()}
-                        </span>
-                      )}
-                    </>
-                  )}
+                  </div>
                 </div>
 
-                <div className="flex flex-wrap gap-2 justify-center">
-                  {paused ? (
+                {/* RIGHT — chips + controls + collapse */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
+                  {/* Task chips */}
+                  <div className="flex flex-wrap gap-2">
+                    {escaped ? (
+                      <span className="font-mono text-sm px-2 py-1 border border-border text-muted-foreground">
+                        free cycle
+                      </span>
+                    ) : (
+                      <>
+                        {selectedTasks.map((t) => (
+                          <span
+                            key={t.id}
+                            className="font-mono text-sm px-2 py-1 border"
+                            style={{ borderColor: "#00f5ff", color: "#00f5ff" }}
+                          >
+                            {t.title}
+                          </span>
+                        ))}
+                        {customTask.trim() && (
+                          <span
+                            className="font-mono text-sm px-2 py-1 border"
+                            style={{ borderColor: "#00f5ff", color: "#00f5ff" }}
+                          >
+                            {customTask.trim()}
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                  {/* Buttons */}
+                  <div className="flex flex-wrap gap-2">
+                    {paused ? (
+                      <button
+                        onClick={resumeCycle}
+                        className="font-display text-[10px] px-3 py-2 neon-border bg-transparent neon-text-pink hover:bg-primary/10"
+                      >
+                        ▶ RESUME
+                      </button>
+                    ) : (
+                      <button
+                        onClick={pauseCycle}
+                        className="font-display text-[10px] px-3 py-2 neon-border-cyan bg-transparent neon-text-cyan hover:bg-secondary/10"
+                      >
+                        ❚❚ PAUSE
+                      </button>
+                    )}
                     <button
-                      onClick={resumeCycle}
-                      className="font-display text-[10px] px-3 py-2 neon-border bg-transparent neon-text-pink hover:bg-primary/10"
+                      onClick={skipCycle}
+                      className="font-display text-[10px] px-3 py-2 border border-border hover:border-primary/60"
                     >
-                      ▶ RESUME
+                      SKIP
                     </button>
-                  ) : (
                     <button
-                      onClick={pauseCycle}
-                      className="font-display text-[10px] px-3 py-2 neon-border-cyan bg-transparent neon-text-cyan hover:bg-secondary/10"
+                      onClick={resetCycle}
+                      className="font-display text-[10px] px-3 py-2 border border-destructive text-destructive hover:bg-destructive/20"
                     >
-                      ❚❚ PAUSE
+                      RESET
                     </button>
-                  )}
+                  </div>
+
                   <button
-                    onClick={skipCycle}
-                    className="font-display text-[10px] px-3 py-2 border border-border hover:border-primary/60"
+                    onClick={() => setCycleOpen(false)}
+                    className="font-display text-[9px] text-muted-foreground hover:neon-text-cyan self-start"
                   >
-                    SKIP
-                  </button>
-                  <button
-                    onClick={resetCycle}
-                    className="font-display text-[10px] px-3 py-2 border border-destructive text-destructive hover:bg-destructive/20"
-                  >
-                    RESET
+                    ▲ COLLAPSE
                   </button>
                 </div>
-
-                <button
-                  onClick={() => setCycleOpen(false)}
-                  className="font-display text-[9px] text-muted-foreground hover:neon-text-cyan"
-                >
-                  ▲ COLLAPSE
-                </button>
               </div>
             )}
 

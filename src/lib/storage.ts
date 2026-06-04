@@ -1,4 +1,11 @@
-export type Category = "JH" | "SeB" | "MJ_SOCIAL" | "MJ_PERSONAL" | "SAFAI" | "HEALTH" | "UNCATEGORIZED";
+export type Category =
+  | "JH"
+  | "SeB"
+  | "MJ_SOCIAL"
+  | "MJ_PERSONAL"
+  | "SAFAI"
+  | "HEALTH"
+  | "UNCATEGORIZED";
 
 export interface Task {
   id: string;
@@ -24,6 +31,14 @@ export interface WorkCycleState {
   muted: boolean;
 }
 
+export interface CycleJournalEntry {
+  id: string;
+  date: string;
+  note: string;
+  tasksCompleted: string[];
+  escaped: boolean;
+}
+
 export interface AppState {
   tasks: Task[];
   xp: number;
@@ -32,6 +47,9 @@ export interface AppState {
   lastCompletionDate: string | null; // YYYY-MM-DD
   totalCompleted: number;
   workCycle: WorkCycleState;
+  swimmingDoneDate: string;
+  morningProtectionDoneDate: string;
+  cycleJournalEntries: CycleJournalEntry[];
 }
 
 const KEY = "synthwave-productivity-v1";
@@ -56,6 +74,9 @@ export const defaultState: AppState = {
   lastCompletionDate: null,
   totalCompleted: 0,
   workCycle: defaultWorkCycle,
+  swimmingDoneDate: "",
+  morningProtectionDoneDate: "",
+  cycleJournalEntries: [],
 };
 
 export const WORK_CYCLE_TITLE = "Work Cycle (20 min)";
@@ -63,17 +84,23 @@ export const FOCUS_MS = 20 * 60 * 1000;
 export const BREAK_MS = 5 * 60 * 1000;
 export const LONG_BREAK_MS = 15 * 60 * 1000;
 
-
 export function loadState(): AppState {
   if (typeof window === "undefined") return defaultState;
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return defaultState;
     const parsed = JSON.parse(raw);
+    const today = todayStr();
     return {
       ...defaultState,
       ...parsed,
       workCycle: { ...defaultWorkCycle, ...(parsed.workCycle ?? {}) },
+      // Daily-reset rituals: only "done" if the stored date matches today.
+      swimmingDoneDate: parsed.swimmingDoneDate === today ? today : "",
+      morningProtectionDoneDate: parsed.morningProtectionDoneDate === today ? today : "",
+      cycleJournalEntries: Array.isArray(parsed.cycleJournalEntries)
+        ? parsed.cycleJournalEntries
+        : [],
     };
   } catch {
     return defaultState;

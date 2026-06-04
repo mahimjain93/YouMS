@@ -7,16 +7,22 @@ import {
   localDateStr,
   todayStr,
   yesterdayStr,
+  FOCUS_MS,
   type AppState,
   type Task,
 } from "@/lib/storage";
 import { UrgeOverlay } from "./UrgeOverlay";
 import { DayJournal } from "./DayJournal";
 import { ShortcutsHelp } from "./ShortcutsHelp";
-import { WorkCyclePanel } from "./WorkCyclePanel";
-
 
 const XP_VALUES = [10, 25, 50];
+const SWIMMING_XP = 25;
+const PROTECTION_XP = 25;
+
+// Ring math for the Work Cycle card mini-ring (r = 20 → circumference ≈ 125.7)
+const RING_CIRC = 125.7;
+
+type CyclePhase = "setup" | "running" | "checkin";
 
 export function Dashboard() {
   const [state, setState] = useState<AppState>(() => loadState());
@@ -29,13 +35,30 @@ export function Dashboard() {
   const [floaters, setFloaters] = useState<Array<{ id: number; xp: number }>>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // ===== Work Cycle (inline) state =====
+  const [cycleOpen, setCycleOpen] = useState(false);
+  const [cyclePhase, setCyclePhase] = useState<CyclePhase>("setup");
+  const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
+  const [customTask, setCustomTask] = useState("");
+  const [escaped, setEscaped] = useState(false);
+  const [checkedTaskIds, setCheckedTaskIds] = useState<string[]>([]);
+  const [journalNote, setJournalNote] = useState("");
+  const [now, setNow] = useState(() => Date.now());
+  const cycleEndedRef = useRef(false);
+
   useEffect(() => saveState(state), [state]);
 
+  // tick for the timer
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(t);
+  }, []);
+
+  const fireFloater = useCallback((xp: number) => {
+    setFloaters((f) => [...f, { id: Date.now() + Math.random(), xp }]);
+  }, []);
+
   const activeTasks = useMemo(() => state.tasks.filter((t) => !t.done), [state.tasks]);
-  const doneTodayTitles = useMemo(
-    () => new Set(state.tasks.filter((t) => t.done && t.completedAt && localDateStr(new Date(t.completedAt)) === todayStr()).map((t) => t.title)),
-    [state.tasks],
-  );
   const completedToday = useMemo(
     () =>
       state.tasks.filter(
@@ -81,7 +104,9 @@ export function Dashboard() {
       setFloaters((f) => [...f, { id: Date.now() + Math.random(), xp: task.xp }]);
       return {
         ...s,
-        tasks: s.tasks.map((t) => (t.id === id ? { ...t, done: true, completedAt: Date.now() } : t)),
+        tasks: s.tasks.map((t) =>
+          t.id === id ? { ...t, done: true, completedAt: Date.now() } : t,
+        ),
         xp: xpRem,
         level,
         streak,
@@ -95,41 +120,236 @@ export function Dashboard() {
     setState((s) => ({ ...s, tasks: s.tasks.filter((t) => t.id !== id) }));
   }, []);
 
-  const logQuickTask = useCallback((title: string, xp: number) => {
-    setState((s) => {
-      const today = todayStr();
-      let streak = s.streak;
-      if (s.lastCompletionDate !== today) {
-        streak = s.lastCompletionDate === yesterdayStr() ? s.streak + 1 : 1;
-      }
-      const newXp = s.xp + xp;
-      let level = s.level;
-      let xpRem = newXp;
-      while (xpRem >= xpForLevel(level)) {
-        xpRem -= xpForLevel(level);
-        level += 1;
-      }
-      const t: Task = {
-        id: crypto.randomUUID(),
-        title,
-        xp,
-        done: true,
-        createdAt: Date.now(),
-        completedAt: Date.now(),
-      };
-      setFloaters((f) => [...f, { id: Date.now() + Math.random(), xp }]);
-      return {
-        ...s,
-        tasks: [t, ...s.tasks],
-        xp: xpRem,
-        level,
-        streak,
-        lastCompletionDate: today,
-        totalCompleted: s.totalCompleted + 1,
-      };
-    });
-  }, []);
+  // ===== Ritual completion (Swimming / Morning Protection) =====
+  const swimmingDone = state.swimmingDoneDate === todayStr();
+  const protectionDone = state.morningProtectionDoneDate === todayStr();
 
+  const completeRitual = useCallback(
+    (which: "swimming" | "protection", xp: number) => {
+      setState((s) => {
+        const today = todayStr();
+        if (which === "swimming" && s.swimmingDoneDate === today) return s;
+        if (which === "protection" && s.morningProtectionDoneDate === today) return s;
+        let streak = s.streak;
+        if (s.lastCompletionDate !== today) {
+          streak = s.lastCompletionDate === yesterdayStr() ? s.streak + 1 : 1;
+        }
+        let xpRem = s.xp + xp;
+        let level = s.level;
+        while (xpRem >= xpForLevel(level)) {
+          xpRem -= xpForLevel(level);
+          level += 1;
+        }
+        return {
+          ...s,
+          xp: xpRem,
+          level,
+          streak,
+          lastCompletionDate: today,
+          totalCompleted: s.totalCompleted + 1,
+          swimmingDoneDate: which === "swimming" ? today : s.swimmingDoneDate,
+          morningProtectionDoneDate: which === "protection" ? today : s.morningProtectionDoneDate,
+        };
+      });
+      fireFloater(xp);
+    },
+    [fireFloater],
+  );
+
+  // ===== Work Cycle timer logic =====
+  const wc = state.workCycle;
+  const running = wc.phase === "focus" && wc.phaseStartedAt != null;
+  const paused = wc.pausedRemainingMs != null;
+  const totalMs = wc.phaseDurationMs || FOCUS_MS;
+  const remainingMs = useMemo(() => {
+    if (wc.phase !== "focus") return totalMs;
+    if (wc.pausedRemainingMs != null) return wc.pausedRemainingMs;
+    if (!wc.phaseStartedAt) return totalMs;
+    return Math.max(0, wc.phaseStartedAt + wc.phaseDurationMs - now);
+  }, [wc, now, totalMs]);
+
+  const secondsLeft = Math.max(0, Math.ceil(remainingMs / 1000));
+  const totalSeconds = Math.max(1, Math.round(totalMs / 1000));
+  const ringOffset = RING_CIRC * (secondsLeft / totalSeconds);
+
+  function setWC(patch: Partial<AppState["workCycle"]>) {
+    setState((s) => ({ ...s, workCycle: { ...s.workCycle, ...patch } }));
+  }
+
+  const cardStatus = running ? (paused ? "PAUSED" : "RUNNING") : "READY";
+
+  // detect natural timer end → check-in
+  useEffect(() => {
+    if (
+      cyclePhase === "running" &&
+      wc.phase === "focus" &&
+      wc.pausedRemainingMs == null &&
+      wc.phaseStartedAt != null &&
+      now >= wc.phaseStartedAt + wc.phaseDurationMs &&
+      !cycleEndedRef.current
+    ) {
+      cycleEndedRef.current = true;
+      setWC({ phase: "idle", phaseStartedAt: null, pausedRemainingMs: null });
+      setCyclePhase("checkin");
+      setCheckedTaskIds([]);
+      setCycleOpen(true);
+    }
+  }, [now, cyclePhase, wc]);
+
+  const selectedTasks = useMemo(
+    () => state.tasks.filter((t) => selectedTaskIds.includes(t.id)),
+    [state.tasks, selectedTaskIds],
+  );
+
+  function openCycle() {
+    if (running) {
+      setCyclePhase("running");
+    } else if (cyclePhase === "checkin") {
+      // keep check-in open
+    } else {
+      setCyclePhase("setup");
+    }
+    setCycleOpen((o) => (running || cyclePhase === "checkin" ? true : !o));
+  }
+
+  function startCycle() {
+    cycleEndedRef.current = false;
+    setEscaped(false);
+    setWC({
+      phase: "focus",
+      phaseStartedAt: Date.now(),
+      phaseDurationMs: FOCUS_MS,
+      pausedRemainingMs: null,
+    });
+    setCyclePhase("running");
+    setCycleOpen(true);
+  }
+
+  function justStart() {
+    cycleEndedRef.current = false;
+    setEscaped(true);
+    setSelectedTaskIds([]);
+    setCustomTask("");
+    setWC({
+      phase: "focus",
+      phaseStartedAt: Date.now(),
+      phaseDurationMs: FOCUS_MS,
+      pausedRemainingMs: null,
+    });
+    setCyclePhase("running");
+    setCycleOpen(true);
+  }
+
+  function pauseCycle() {
+    if (wc.phase !== "focus" || wc.pausedRemainingMs != null) return;
+    setWC({ pausedRemainingMs: remainingMs });
+  }
+  function resumeCycle() {
+    if (wc.pausedRemainingMs == null) return;
+    setWC({
+      phaseStartedAt: Date.now(),
+      phaseDurationMs: wc.pausedRemainingMs,
+      pausedRemainingMs: null,
+    });
+  }
+  function skipCycle() {
+    cycleEndedRef.current = true;
+    setWC({ phase: "idle", phaseStartedAt: null, pausedRemainingMs: null });
+    setCheckedTaskIds([]);
+    setCyclePhase("checkin");
+    setCycleOpen(true);
+  }
+  function resetCycle() {
+    cycleEndedRef.current = false;
+    setWC({
+      phase: "idle",
+      phaseStartedAt: null,
+      phaseDurationMs: FOCUS_MS,
+      pausedRemainingMs: null,
+    });
+    setSelectedTaskIds([]);
+    setCustomTask("");
+    setEscaped(false);
+    setCyclePhase("setup");
+  }
+
+  function toggleSelectTask(id: string) {
+    setSelectedTaskIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+  }
+  function toggleCheckTask(id: string) {
+    setCheckedTaskIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+  }
+
+  function confirmCheckin() {
+    const today = todayStr();
+    const note = journalNote.trim();
+    // Titles of completed tasks (those checked in the check-in).
+    const completedTitles = state.tasks
+      .filter((t) => checkedTaskIds.includes(t.id))
+      .map((t) => t.title);
+
+    // 1) Persist cycle journal entry to AppState + complete checked tasks with full XP logic.
+    setState((s) => {
+      let next: AppState = { ...s };
+      // complete checked tasks
+      for (const id of checkedTaskIds) {
+        const task = next.tasks.find((t) => t.id === id);
+        if (!task || task.done) continue;
+        let streak = next.streak;
+        if (next.lastCompletionDate !== today) {
+          streak = next.lastCompletionDate === yesterdayStr() ? next.streak + 1 : 1;
+        }
+        let xpRem = next.xp + task.xp;
+        let level = next.level;
+        while (xpRem >= xpForLevel(level)) {
+          xpRem -= xpForLevel(level);
+          level += 1;
+        }
+        next = {
+          ...next,
+          tasks: next.tasks.map((t) =>
+            t.id === id ? { ...t, done: true, completedAt: Date.now() } : t,
+          ),
+          xp: xpRem,
+          level,
+          streak,
+          lastCompletionDate: today,
+          totalCompleted: next.totalCompleted + 1,
+        };
+        setFloaters((f) => [...f, { id: Date.now() + Math.random(), xp: task.xp }]);
+      }
+      const entry = {
+        id: crypto.randomUUID(),
+        date: today,
+        note,
+        tasksCompleted: completedTitles,
+        escaped,
+      };
+      return { ...next, cycleJournalEntries: [...next.cycleJournalEntries, entry] };
+    });
+
+    // 2) Persist to Day Journal.
+    saveJournalEntry({
+      id: crypto.randomUUID(),
+      entryType: "cycle",
+      startedAt: Date.now(),
+      endedAt: Date.now(),
+      note,
+      tasksCompleted: completedTitles,
+    });
+
+    // 3) Reset Work Cycle back to resting state.
+    setJournalNote("");
+    setCheckedTaskIds([]);
+    setSelectedTaskIds([]);
+    setCustomTask("");
+    setEscaped(false);
+    cycleEndedRef.current = false;
+    setCyclePhase("setup");
+    setCycleOpen(false);
+  }
+
+  const canStart = selectedTaskIds.length > 0 || customTask.trim().length > 0;
 
   // keyboard shortcuts
   useEffect(() => {
@@ -196,8 +416,10 @@ export function Dashboard() {
         style={{
           background: "var(--sun-gradient)",
           filter: "blur(2px)",
-          maskImage: "linear-gradient(180deg, black 60%, transparent 100%), repeating-linear-gradient(0deg, black 0 8px, transparent 8px 12px)",
-          WebkitMaskImage: "linear-gradient(180deg, black 60%, transparent 100%), repeating-linear-gradient(0deg, black 0 8px, transparent 8px 12px)",
+          maskImage:
+            "linear-gradient(180deg, black 60%, transparent 100%), repeating-linear-gradient(0deg, black 0 8px, transparent 8px 12px)",
+          WebkitMaskImage:
+            "linear-gradient(180deg, black 60%, transparent 100%), repeating-linear-gradient(0deg, black 0 8px, transparent 8px 12px)",
           WebkitMaskComposite: "source-in",
           maskComposite: "intersect",
         }}
@@ -209,9 +431,7 @@ export function Dashboard() {
           <h1 className="font-display text-lg md:text-2xl lg:text-3xl neon-text-pink crt-flicker leading-tight">
             Welcome to Mahim Management System (MMS)
           </h1>
-          <p className="mt-2 text-lg text-muted-foreground font-mono">
-            // let's move //
-          </p>
+          <p className="mt-2 text-lg text-muted-foreground font-mono">// let's move //</p>
         </header>
 
         {/* Stats HUD */}
@@ -231,33 +451,301 @@ export function Dashboard() {
           </a>
         </div>
 
-        {/* Rituals — all equal */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 items-stretch">
-          <WorkCyclePanel
-            state={state}
-            setState={setState}
-            onFloater={(xp) => setFloaters((f) => [...f, { id: Date.now() + Math.random(), xp }])}
+        {/* Rituals — three equal cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 items-stretch">
+          {/* Swimming */}
+          <RitualTapCard
+            label="Swimming"
+            labelColor="#ff6b00"
+            xpColor="#ffe600"
+            xp={SWIMMING_XP}
+            done={swimmingDone}
+            border="1px solid #ff6b0044"
+            boxShadow="0 0 10px #ff6b001a"
+            onTap={() => completeRitual("swimming", SWIMMING_XP)}
           />
-          <RitualCard
-            title="Morning Protection"
-            xp={25}
-            sub="daily armor up"
-            accent="cyan"
-            onLog={logQuickTask}
-            doneToday={doneTodayTitles.has("Morning Protection")}
+          {/* Morning Protection */}
+          <RitualTapCard
+            label="Morning Protection"
+            labelColor="#bf5fff"
+            xpColor="#ffe600"
+            xp={PROTECTION_XP}
+            done={protectionDone}
+            border="1px solid #bf5fff44"
+            boxShadow="0 0 10px #bf5fff1a"
+            onTap={() => completeRitual("protection", PROTECTION_XP)}
           />
-          <RitualCard
-            title="Morning Smoking Delayed?"
-            xp={30}
-            sub="tap = YES"
-            accent="yellow"
-            onLog={logQuickTask}
-            doneToday={doneTodayTitles.has("Morning Smoking Delayed?")}
-          />
+          {/* Work Cycle */}
+          <button
+            onClick={openCycle}
+            className="bg-card scanlines text-left flex items-center justify-between gap-3 p-4 transition-all hover:scale-[1.02] active:scale-[0.99]"
+            style={{
+              minHeight: 100,
+              border: "1px solid #00f5ff44",
+              boxShadow: "0 0 10px #00f5ff1a",
+            }}
+          >
+            <div className="flex flex-col gap-1">
+              <span className="font-display text-[11px]" style={{ color: "#00f5ff" }}>
+                Work Cycle
+              </span>
+              <span className="font-mono" style={{ fontSize: 9, opacity: 0.3, letterSpacing: 1 }}>
+                {cardStatus}
+              </span>
+            </div>
+            <div className="relative" style={{ width: 52, height: 52 }}>
+              <svg width={52} height={52} className="-rotate-90">
+                <circle
+                  cx={26}
+                  cy={26}
+                  r={20}
+                  fill="none"
+                  stroke="hsl(var(--border))"
+                  strokeWidth={4}
+                  opacity={0.4}
+                />
+                <circle
+                  cx={26}
+                  cy={26}
+                  r={20}
+                  fill="none"
+                  stroke="#00f5ff"
+                  strokeWidth={4}
+                  strokeLinecap="round"
+                  strokeDasharray={RING_CIRC}
+                  strokeDashoffset={ringOffset}
+                  style={{ filter: "drop-shadow(0 0 4px #00f5ff)" }}
+                />
+              </svg>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="font-mono" style={{ fontSize: 9, color: "#00f5ff" }}>
+                  {fmtTime(remainingMs)}
+                </span>
+              </div>
+            </div>
+          </button>
         </div>
 
+        {/* Work Cycle expansion panel (full width) */}
+        {cycleOpen && (
+          <div
+            className="bg-card scanlines p-4 mb-6"
+            style={{ border: "1px solid #00f5ff44", boxShadow: "0 0 10px #00f5ff1a" }}
+          >
+            {cyclePhase === "setup" && (
+              <div className="flex flex-col gap-4">
+                <div
+                  className="font-mono"
+                  style={{ fontSize: 9, color: "#00f5ff", opacity: 0.5, letterSpacing: 2 }}
+                >
+                  WHAT ARE YOU WORKING ON?
+                </div>
 
+                {activeTasks.length === 0 ? (
+                  <p className="font-mono text-sm text-muted-foreground">
+                    no active missions — use the escape hatch or type one below
+                  </p>
+                ) : (
+                  <ul className="flex flex-col gap-2">
+                    {activeTasks.map((t) => {
+                      const sel = selectedTaskIds.includes(t.id);
+                      return (
+                        <li
+                          key={t.id}
+                          onClick={() => toggleSelectTask(t.id)}
+                          className="flex items-center gap-3 p-2 border cursor-pointer transition-all"
+                          style={{
+                            borderColor: sel ? "#00f5ff" : "hsl(var(--border))",
+                            color: sel ? "#00f5ff" : undefined,
+                          }}
+                        >
+                          <span
+                            className="inline-flex items-center justify-center font-display text-[10px]"
+                            style={{
+                              width: 18,
+                              height: 18,
+                              border: `1px solid ${sel ? "#00f5ff" : "hsl(var(--border))"}`,
+                            }}
+                          >
+                            {sel ? "✓" : ""}
+                          </span>
+                          <span className="flex-1 font-mono text-lg">{t.title}</span>
+                          <span className="font-display text-[10px] neon-text-yellow">+{t.xp}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
 
+                <div className="flex items-center gap-3">
+                  <div className="h-px flex-1 bg-border" />
+                  <span className="font-display text-[9px] text-muted-foreground">OR</span>
+                  <div className="h-px flex-1 bg-border" />
+                </div>
+
+                <input
+                  value={customTask}
+                  onChange={(e) => setCustomTask(e.target.value)}
+                  placeholder="> type a task..."
+                  className="w-full bg-input border border-border px-3 py-2 font-mono text-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:neon-border-cyan"
+                />
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={startCycle}
+                    disabled={!canStart}
+                    className="font-display text-[10px] px-4 py-2 neon-border-cyan bg-transparent neon-text-cyan hover:bg-secondary/10 disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    ▶ START
+                  </button>
+                  <button
+                    onClick={justStart}
+                    className="font-display text-[10px] px-4 py-2 neon-border bg-transparent neon-text-pink hover:bg-primary/10"
+                  >
+                    ⚡ JUST START
+                  </button>
+                </div>
+
+                <button
+                  onClick={() => setCycleOpen(false)}
+                  className="self-start font-display text-[9px] text-muted-foreground hover:neon-text-cyan"
+                >
+                  ▲ COLLAPSE
+                </button>
+              </div>
+            )}
+
+            {cyclePhase === "running" && (
+              <div className="flex flex-col gap-4 items-center">
+                <div
+                  className="font-display"
+                  style={{ fontSize: 32, color: "#00f5ff", letterSpacing: 5 }}
+                >
+                  {fmtTime(remainingMs)}
+                </div>
+
+                <div className="flex flex-wrap gap-2 justify-center">
+                  {escaped ? (
+                    <span className="font-mono text-sm px-2 py-1 border border-border text-muted-foreground">
+                      free cycle
+                    </span>
+                  ) : (
+                    <>
+                      {selectedTasks.map((t) => (
+                        <span
+                          key={t.id}
+                          className="font-mono text-sm px-2 py-1 border"
+                          style={{ borderColor: "#00f5ff", color: "#00f5ff" }}
+                        >
+                          {t.title}
+                        </span>
+                      ))}
+                      {customTask.trim() && (
+                        <span
+                          className="font-mono text-sm px-2 py-1 border"
+                          style={{ borderColor: "#00f5ff", color: "#00f5ff" }}
+                        >
+                          {customTask.trim()}
+                        </span>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap gap-2 justify-center">
+                  {paused ? (
+                    <button
+                      onClick={resumeCycle}
+                      className="font-display text-[10px] px-3 py-2 neon-border bg-transparent neon-text-pink hover:bg-primary/10"
+                    >
+                      ▶ RESUME
+                    </button>
+                  ) : (
+                    <button
+                      onClick={pauseCycle}
+                      className="font-display text-[10px] px-3 py-2 neon-border-cyan bg-transparent neon-text-cyan hover:bg-secondary/10"
+                    >
+                      ❚❚ PAUSE
+                    </button>
+                  )}
+                  <button
+                    onClick={skipCycle}
+                    className="font-display text-[10px] px-3 py-2 border border-border hover:border-primary/60"
+                  >
+                    SKIP
+                  </button>
+                  <button
+                    onClick={resetCycle}
+                    className="font-display text-[10px] px-3 py-2 border border-destructive text-destructive hover:bg-destructive/20"
+                  >
+                    RESET
+                  </button>
+                </div>
+
+                <button
+                  onClick={() => setCycleOpen(false)}
+                  className="font-display text-[9px] text-muted-foreground hover:neon-text-cyan"
+                >
+                  ▲ COLLAPSE
+                </button>
+              </div>
+            )}
+
+            {cyclePhase === "checkin" && (
+              <div className="flex flex-col gap-4">
+                <div className="font-display" style={{ fontSize: 11, color: "#ffe600" }}>
+                  HOW WAS THAT?
+                </div>
+
+                {!escaped && selectedTasks.length > 0 && (
+                  <ul className="flex flex-col gap-2">
+                    {selectedTasks.map((t) => {
+                      const checked = checkedTaskIds.includes(t.id);
+                      return (
+                        <li
+                          key={t.id}
+                          onClick={() => toggleCheckTask(t.id)}
+                          className="flex items-center gap-3 p-2 border cursor-pointer transition-all"
+                          style={{
+                            borderColor: checked ? "#39ff14" : "hsl(var(--border))",
+                            color: checked ? "#39ff14" : undefined,
+                          }}
+                        >
+                          <span
+                            className="inline-flex items-center justify-center font-display text-[10px]"
+                            style={{
+                              width: 18,
+                              height: 18,
+                              border: `1px solid ${checked ? "#39ff14" : "hsl(var(--border))"}`,
+                            }}
+                          >
+                            {checked ? "✓" : ""}
+                          </span>
+                          <span className="flex-1 font-mono text-lg">{t.title}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+
+                <textarea
+                  value={journalNote}
+                  onChange={(e) => setJournalNote(e.target.value)}
+                  placeholder="> thoughts, blockers, anything..."
+                  rows={3}
+                  className="w-full bg-input border border-border px-3 py-2 font-mono text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:neon-border-cyan resize-none"
+                />
+
+                <button
+                  onClick={confirmCheckin}
+                  className="self-start font-display text-[10px] px-4 py-2 neon-border-cyan bg-transparent neon-text-cyan hover:bg-secondary/10"
+                >
+                  CONFIRM →
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* XP bar */}
         <div className="mb-6 bg-card neon-border p-4 relative scanlines">
@@ -272,7 +760,8 @@ export function Dashboard() {
               className="h-full transition-all duration-500 animate-pulse-glow"
               style={{
                 width: `${progress}%`,
-                background: "linear-gradient(90deg, var(--neon-pink), var(--neon-purple), var(--neon-cyan))",
+                background:
+                  "linear-gradient(90deg, var(--neon-pink), var(--neon-purple), var(--neon-cyan))",
               }}
             />
           </div>
@@ -317,7 +806,9 @@ export function Dashboard() {
 
         {/* Task list */}
         <div className="mb-6">
-          <h2 className="font-display text-xs neon-text-cyan mb-3">// MISSIONS [{activeTasks.length}]</h2>
+          <h2 className="font-display text-xs neon-text-cyan mb-3">
+            // MISSIONS [{activeTasks.length}]
+          </h2>
           {activeTasks.length === 0 ? (
             <div className="bg-card border border-border p-8 text-center text-muted-foreground font-mono text-xl">
               [ NO ACTIVE MISSIONS ]
@@ -331,14 +822,10 @@ export function Dashboard() {
                   key={t.id}
                   onClick={() => setSelectedIdx(i)}
                   className={`group flex items-center gap-3 bg-card p-3 border transition-all cursor-pointer ${
-                    i === selectedIdx
-                      ? "neon-border"
-                      : "border-border hover:border-primary/50"
+                    i === selectedIdx ? "neon-border" : "border-border hover:border-primary/50"
                   }`}
                 >
-                  <span className="font-display text-[10px] neon-text-yellow">
-                    +{t.xp}
-                  </span>
+                  <span className="font-display text-[10px] neon-text-yellow">+{t.xp}</span>
                   <span className="flex-1 font-mono text-xl text-foreground">{t.title}</span>
                   <button
                     onClick={(e) => {
@@ -371,7 +858,10 @@ export function Dashboard() {
             </h2>
             <ul className="space-y-1 opacity-60">
               {completedToday.slice(0, 5).map((t) => (
-                <li key={t.id} className="flex items-center gap-3 font-mono text-lg line-through text-muted-foreground">
+                <li
+                  key={t.id}
+                  className="flex items-center gap-3 font-mono text-lg line-through text-muted-foreground"
+                >
                   <span className="neon-text-yellow no-underline">+{t.xp}</span>
                   <span>{t.title}</span>
                 </li>
@@ -431,6 +921,13 @@ export function Dashboard() {
   );
 }
 
+function fmtTime(ms: number) {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m.toString().padStart(2, "0")}:${r.toString().padStart(2, "0")}`;
+}
+
 function StatCard({
   label,
   value,
@@ -444,8 +941,8 @@ function StatCard({
     color === "pink"
       ? "neon-border neon-text-pink"
       : color === "cyan"
-      ? "neon-border-cyan neon-text-cyan"
-      : "neon-border neon-text-yellow";
+        ? "neon-border-cyan neon-text-cyan"
+        : "neon-border neon-text-yellow";
   return (
     <div className={`bg-card p-3 text-center relative scanlines ${cls.split(" ")[0]}`}>
       <div className="font-display text-[9px] text-muted-foreground mb-1">{label}</div>
@@ -454,48 +951,53 @@ function StatCard({
   );
 }
 
-function RitualCard({
-  title,
+function RitualTapCard({
+  label,
+  labelColor,
+  xpColor,
   xp,
-  sub,
-  accent,
-  onLog,
-  doneToday,
+  done,
+  border,
+  boxShadow,
+  onTap,
 }: {
-  title: string;
+  label: string;
+  labelColor: string;
+  xpColor: string;
   xp: number;
-  sub: string;
-  accent: "pink" | "cyan" | "yellow";
-  onLog: (title: string, xp: number) => void;
-  doneToday?: boolean;
+  done: boolean;
+  border: string;
+  boxShadow: string;
+  onTap: () => void;
 }) {
-  const border = accent === "cyan" ? "neon-border-cyan" : "neon-border";
-  const text =
-    accent === "cyan"
-      ? "neon-text-cyan"
-      : accent === "yellow"
-      ? "neon-text-yellow"
-      : "neon-text-pink";
   return (
     <button
-      onClick={() => !doneToday && onLog(title, xp)}
-      disabled={doneToday}
-      className={`group bg-card ${border} scanlines p-4 text-left h-full flex flex-col transition-all ${
-        doneToday ? "opacity-50 cursor-not-allowed" : "hover:scale-[1.02] active:scale-[0.99]"
+      onClick={() => !done && onTap()}
+      disabled={done}
+      className={`bg-card scanlines p-4 text-left flex flex-col justify-between transition-all relative ${
+        done ? "cursor-not-allowed" : "hover:scale-[1.02] active:scale-[0.99]"
       }`}
+      style={{ minHeight: 100, border, boxShadow, opacity: done ? 0.35 : 1 }}
     >
-      <div className="flex items-start justify-between gap-2 mb-2">
-        <span className={`font-display text-[11px] ${text} leading-snug`}>
-          {title}
+      {done && (
+        <span
+          className="absolute top-2 right-2 font-display text-[10px]"
+          style={{ color: "#39ff14" }}
+        >
+          ✓ DONE
         </span>
-        <span className="font-display text-[10px] neon-text-yellow shrink-0">
-          {doneToday ? "✓ DONE" : `+${xp}XP`}
+      )}
+      <span className="font-display text-[11px]" style={{ color: labelColor }}>
+        {label}
+      </span>
+      <div className="flex items-end justify-between mt-2">
+        <span className="font-mono" style={{ fontSize: 9, opacity: 0.3 }}>
+          TAP WHEN DONE
+        </span>
+        <span className="font-display text-[10px]" style={{ color: xpColor }}>
+          +{xp} XP
         </span>
       </div>
-      <p className="font-mono text-sm text-muted-foreground">{doneToday ? "logged today" : sub}</p>
     </button>
   );
 }
-
-
-

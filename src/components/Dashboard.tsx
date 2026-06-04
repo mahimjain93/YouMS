@@ -170,7 +170,6 @@ export function Dashboard() {
 
   const secondsLeft = Math.max(0, Math.ceil(remainingMs / 1000));
   const totalSeconds = Math.max(1, Math.round(totalMs / 1000));
-  const ringOffset = RING_CIRC * (secondsLeft / totalSeconds);
 
   function setWC(patch: Partial<AppState["workCycle"]>) {
     setState((s) => ({ ...s, workCycle: { ...s.workCycle, ...patch } }));
@@ -478,46 +477,56 @@ export function Dashboard() {
           {/* Work Cycle */}
           <button
             onClick={openCycle}
-            className="bg-card scanlines text-left flex items-center justify-between gap-3 p-4 transition-all hover:scale-[1.02] active:scale-[0.99]"
+            className="bg-card scanlines p-4 transition-all hover:scale-[1.02] active:scale-[0.99]"
             style={{
               minHeight: 100,
               border: "1px solid #00f5ff44",
               boxShadow: "0 0 10px #00f5ff1a",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              textAlign: "left",
             }}
           >
-            <div className="flex flex-col gap-1">
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               <span className="font-display text-[11px]" style={{ color: "#00f5ff" }}>
                 Work Cycle
               </span>
-              <span className="font-mono" style={{ fontSize: 9, opacity: 0.3, letterSpacing: 1 }}>
+              <span className="font-mono" style={{ fontSize: 11, opacity: 0.5, letterSpacing: 1 }}>
                 {cardStatus}
               </span>
             </div>
-            <div className="relative" style={{ width: 52, height: 52 }}>
-              <svg width={52} height={52} className="-rotate-90">
-                <circle
-                  cx={26}
-                  cy={26}
-                  r={20}
-                  fill="none"
-                  stroke="hsl(var(--border))"
-                  strokeWidth={4}
-                  opacity={0.4}
-                />
+            <div style={{ position: "relative", width: 52, height: 52, flexShrink: 0 }}>
+              <svg
+                width={52}
+                height={52}
+                viewBox="0 0 52 52"
+                style={{ transform: "rotate(-90deg)" }}
+              >
+                <circle cx={26} cy={26} r={20} fill="none" stroke="#00f5ff15" strokeWidth={3} />
                 <circle
                   cx={26}
                   cy={26}
                   r={20}
                   fill="none"
                   stroke="#00f5ff"
-                  strokeWidth={4}
+                  strokeWidth={3}
                   strokeLinecap="round"
                   strokeDasharray={RING_CIRC}
-                  strokeDashoffset={ringOffset}
+                  strokeDashoffset={RING_CIRC * (secondsLeft / totalSeconds)}
                   style={{ filter: "drop-shadow(0 0 4px #00f5ff)" }}
                 />
               </svg>
-              <div className="absolute inset-0 flex items-center justify-center">
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
                 <span className="font-mono" style={{ fontSize: 9, color: "#00f5ff" }}>
                   {fmtTime(remainingMs)}
                 </span>
@@ -991,7 +1000,7 @@ function RitualTapCard({
         {label}
       </span>
       <div className="flex items-end justify-between mt-2">
-        <span className="font-mono" style={{ fontSize: 9, opacity: 0.3 }}>
+        <span className="font-mono" style={{ fontSize: 11, opacity: 0.5 }}>
           TAP WHEN DONE
         </span>
         <span className="font-display text-[10px]" style={{ color: xpColor }}>
